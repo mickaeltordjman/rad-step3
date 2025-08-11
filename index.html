@@ -4,10 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Radiograph Authenticity Study</title>
+  <!-- Speed up image loads -->
+  <link rel="preconnect" href="https://lh3.googleusercontent.com" crossorigin>
   <link rel="stylesheet" href="assets/style.css"/>
 </head>
 <body>
   <main id="app">
+    <!-- Consent / Intro -->
     <section id="screen-consent" class="screen">
       <h1>Radiograph Authenticity Study</h1>
       <p>Please read and confirm your consent to participate.</p>
@@ -15,10 +18,11 @@
         <li>You will review <strong>110 radiographs</strong>, one at a time.</li>
         <li>For each image, indicate whether it is <strong>Real</strong> or <strong>Synthetic</strong>.</li>
         <li>We record the time you spend on each image and overall.</li>
+        <li>Shortcuts: <kbd>R</kbd>=Real, <kbd>F</kbd>=Synthetic, ←/→ to navigate.</li>
       </ul>
-      <label>
-        Participant ID / Email (required):<br/>
-        <input id="participant-id" type="text" placeholder="Enter ID or email"/>
+      <label class="field">
+        Participant ID / Email (required):
+        <input id="participant-id" type="text" placeholder="Enter ID or email" autocomplete="off"/>
       </label>
       <label class="consent">
         <input id="consent-checkbox" type="checkbox"/> I consent to participate in this study.
@@ -26,37 +30,42 @@
       <button id="start-btn" disabled>Start</button>
     </section>
 
+    <!-- Task -->
     <section id="screen-task" class="screen hidden">
       <div class="topbar">
         <div id="progress">Image 0 / 0</div>
-        <div id="timer">00:00</div>
+        <div id="timer" aria-live="polite">00:00</div>
       </div>
 
       <div class="image-wrap">
-        <img id="rad-img" alt="Radiograph"/>
+        <img id="rad-img" alt="Radiograph" referrerpolicy="no-referrer"/>
       </div>
 
       <div class="controls">
-        <div class="choice">
+        <div class="choice" role="group" aria-label="Real or Synthetic">
           <button id="btn-real" class="primary">Real (R)</button>
           <button id="btn-synth" class="secondary">Synthetic (F)</button>
         </div>
+
         <div class="confidence">
           <label for="confidence">Confidence:
             <span id="conf-val">3</span>/5
           </label>
-          <input id="confidence" type="range" min="1" max="5" value="3"/>
+          <input id="confidence" type="range" min="1" max="5" value="3" />
         </div>
+
         <div class="comment">
-          <input id="comment" type="text" placeholder="Optional comment"/>
+          <input id="comment" type="text" placeholder="Optional comment" autocomplete="off"/>
         </div>
+
         <div class="nav">
-          <button id="btn-prev">Prev</button>
-          <button id="btn-next" class="accent">Next</button>
+          <button id="btn-prev" type="button">Prev</button>
+          <button id="btn-next" class="accent" type="button" disabled>Next</button>
         </div>
       </div>
     </section>
 
+    <!-- Finish -->
     <section id="screen-finish" class="screen hidden">
       <h2>All done — thank you!</h2>
       <p>Your responses have been submitted.</p>
@@ -67,6 +76,7 @@
       </details>
     </section>
 
+    <!-- Loading -->
     <section id="screen-loading" class="screen hidden">
       <p>Loading images… Please wait.</p>
     </section>
