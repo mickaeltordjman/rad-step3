@@ -1,4 +1,8 @@
-// Utility: Fisher–Yates shuffle
+// assets/app.js
+// Complete drop-in script with: fast local manifest load, sticky selection,
+// Next gated until a choice, per-image timing, keyboard shortcuts, and submission.
+
+// ───────── Utils ─────────
 function shuffle(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -6,9 +10,15 @@ function shuffle(array) {
   }
   return array;
 }
+function msToClock(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
 
-// ----- Global state -----
-let images = [];           // [{url, name}...]
+// ───────── Global state ─────────
+let images = [];           // [{url, name}]
 let order = [];            // shuffled indices
 let current = 0;           // index within order[]
 let perImage = {};         // name -> {choice, confidence, comment, tStart, ms}
@@ -17,7 +27,7 @@ let tStudyStart = null;
 let totalMs = 0;
 let tickInterval = null;
 
-// Elements
+// ───────── DOM ─────────
 const scrConsent  = document.getElementById("screen-consent");
 const scrTask     = document.getElementById("screen-task");
 const scrFinish   = document.getElementById("screen-finish");
@@ -46,32 +56,37 @@ const summaryEl      = document.getElementById("summary");
 // Helpful default to reduce odd referrer issues with some CDNs
 if (imgEl) imgEl.referrerPolicy = "no-referrer";
 
-// Enable Start only with consent + participant id
+// ───────── Config from assets/config.js ─────────
+// Expected globals: FILES_ENDPOINT, SUBMIT_ENDPOINT, LIMIT_IMAGES, KEY_REAL, KEY_SYNTH
+
+// ───────── Enable Start only with consent + participant id ─────────
 function updateStartEnabled() {
   startBtn.disabled = !(consentCB.checked && participantInput.value.trim().length > 0);
 }
 consentCB.addEventListener("change", updateStartEnabled);
 participantInput.addEventListener("input", updateStartEnabled);
 
-// Visually reflect choice & gate Next button
+// ───────── Visual state for choice & gating Next ─────────
 function updateChoiceButtons(rec) {
   btnReal.classList.toggle("selected", rec.choice === "Real");
   btnSynth.classList.toggle("selected", rec.choice === "Synthetic");
   btnNext.disabled = !rec.choice; // block Next until a choice exists
 }
 
-// Keyboard shortcuts
+// ───────── Keyboard shortcuts ─────────
 function bindKeys() {
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
-    if (k === (typeof KEY_REAL === "string" ? KEY_REAL : "r")) choose("Real");
-    if (k === (typeof KEY_SYNTH === "string" ? KEY_SYNTH : "f")) choose("Synthetic");
+    const realKey  = (typeof KEY_REAL  === "string" && KEY_REAL.length)  ? KEY_REAL.toLowerCase()  : "r";
+    const synthKey = (typeof KEY_SYNTH === "string" && KEY_SYNTH.length) ? KEY_SYNTH.toLowerCase() : "f";
+    if (k === realKey)  choose("Real");
+    if (k === synthKey) choose("Synthetic");
     if (e.key === "ArrowRight") next();
     if (e.key === "ArrowLeft")  prev();
   });
 }
 
-// Timer helpers
+// ───────── Timers ─────────
 function startTick() {
   tickInterval = setInterval(() => {
     const ms = performance.now() - tStudyStart;
@@ -79,86 +94,51 @@ function startTick() {
   }, 200);
 }
 function stopTick() { if (tickInterval) clearInterval(tickInterval); }
-function msToClock(ms) {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+
+function endTimingForCurrent() {
+  const idx = order[current];
+  const item = images[idx];
+  const rec = perImage[item.name];
+  if (rec && rec.tStart != null) {
+    rec.ms += (performance.now() - rec.tStart);
+    rec.tStart = null;
+  }
 }
 
-// MAIN: Start flow
-const CACHE_KEY = "rad_images_v2"; // bump to v3 later if you need to force refresh
-
-startBtn.addEventListener("click", async () => {
-  participant = participantInput.value.trim();
-  scrConsent.classList.add("hidden");
-  scrLoading.classList.remove("hidden");
-
-  try {
-    // --- Session cache for the manifest (faster reloads, avoids Apps Script cold starts) ---
-    let list;
-    const cached = sessionStorage.getItem(CACHE_KEY);
-    if (cached) {
-      list = JSON.parse(cached);
-    } else {
-      const res  = await fetch(
-        FILES_ENDPOINT + (FILES_ENDPOINT.includes("?") ? "&" : "?") + "ts=" + Date.now(),
-        { cache: "no-store" }
-      );
-      const text = await res.text();     // robust to wrong MIME
-      list = JSON.parse(text);           // throws if malformed -> caught below
-      sessionStorage.setItem(CACHE_KEY, JSON.stringify(list));
+// ───────── Manifest normalization ─────────
+// Supports multiple schemas: 
+// 1) {url, name} 
+// 2) {fileName, embedUrl} (your old project style)
+// 3) "https://…/image.png" (string)
+function normalizeList(list) {
+  return list.map((item, i) => {
+    if (typeof item === "string") {
+      return { url: item, name: `img_${i+1}` };
     }
-
-    // Normalize -> images[]
-    images = list.map((item, idx) =>
-      typeof item === "string"
-        ? { url: item, urlRaw: item, name: `img_${idx+1}` }
-        : { url: item.url, urlRaw: item.url, name: item.name || `img_${idx+1}` }
-    );
-
-    // Optional cap from config.js
-    if (typeof LIMIT_IMAGES === "number" && LIMIT_IMAGES > 0) {
-      images = images.slice(0, LIMIT_IMAGES);
+    if (item && typeof item === "object") {
+      // Prefer new schema
+      if (item.url && (item.name || item.fileName)) {
+        return { url: item.url, name: item.name || item.fileName };
+      }
+      // Old schema: fileName + embedUrl
+      if (item.embedUrl) {
+        let u = String(item.embedUrl);
+        // Drive links: prefer export=download for clean <img> delivery
+        if (u.includes("drive.google.com")) {
+          u = u.replace("export=view", "export=download");
+        }
+        return { url: u, name: item.fileName || `img_${i+1}` };
+      }
     }
+    // Fallback
+    return { url: "", name: `img_${i+1}` };
+  }).filter(it => !!it.url);
+}
 
-    // Build per-image store
-    perImage = {};
-    for (const it of images) {
-      perImage[it.name] = { choice: null, confidence: 3, comment: "", tStart: null, ms: 0 };
-    }
-
-    // Shuffle order
-    order = shuffle([...images.keys()]);
-  } catch (e) {
-    alert("Failed to load image list.\n" + e);
-    console.error("List load error:", e);
-    return;
-  }
-
-  // Ready -> show task
-  tStudyStart = performance.now();
-  scrLoading.classList.add("hidden");
-  scrTask.classList.remove("hidden");
-  bindKeys();
-  showCurrent();
-  startTick();
-});
-
-// UI events
-btnReal.addEventListener("click", () => choose("Real"));
-btnSynth.addEventListener("click", () => choose("Synthetic"));
-btnNext.addEventListener("click", next);
-btnPrev.addEventListener("click", prev);
-
-confidenceEl.addEventListener("input", () => {
-  confValEl.textContent = confidenceEl.value;
-  // Do NOT clear choice when moving the slider
-});
-
+// ───────── Show current image ─────────
 function showCurrent() {
   if (!order.length) {
-    alert("No images returned. Check your Drive folder / endpoint.");
+    alert("No images returned. Check your images.json / endpoint.");
     return;
   }
   const idx = order[current];
@@ -189,6 +169,7 @@ function showCurrent() {
   }
 }
 
+// ───────── Choice & navigation ─────────
 function choose(label) {
   const idx = order[current];
   const item = images[idx];
@@ -224,16 +205,7 @@ function prev() {
   }
 }
 
-function endTimingForCurrent() {
-  const idx = order[current];
-  const item = images[idx];
-  const rec = perImage[item.name];
-  if (rec.tStart != null) {
-    rec.ms += (performance.now() - rec.tStart);
-    rec.tStart = null;
-  }
-}
-
+// ───────── Submit ─────────
 async function finish() {
   stopTick();
   totalMs = performance.now() - tStudyStart;
@@ -274,3 +246,68 @@ async function finish() {
   summaryEl.textContent = `Total time: ${msToClock(totalMs)} across ${order.length} images.`;
   payloadPreview.textContent = JSON.stringify({ participant, total_ms: Math.round(totalMs), n: order.length, rows }, null, 2);
 }
+
+// ───────── Events ─────────
+btnReal.addEventListener("click", () => choose("Real"));
+btnSynth.addEventListener("click", () => choose("Synthetic"));
+btnNext.addEventListener("click", next);
+btnPrev.addEventListener("click", prev);
+
+confidenceEl.addEventListener("input", () => {
+  confValEl.textContent = confidenceEl.value;
+  // Do NOT clear choice when moving the slider
+});
+
+// ───────── Start flow ─────────
+const CACHE_KEY = "rad_images_v3"; // bump to force-refresh manifest if needed
+
+startBtn.addEventListener("click", async () => {
+  participant = participantInput.value.trim();
+  scrConsent.classList.add("hidden");
+  scrLoading.classList.remove("hidden");
+
+  try {
+    // Session cache for the manifest (fast reloads; avoids cold starts if FILES_ENDPOINT is a web app)
+    let list;
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      list = JSON.parse(cached);
+    } else {
+      // Add ts param to avoid stale caching of the manifest only
+      const url = FILES_ENDPOINT + (FILES_ENDPOINT.includes("?") ? "&" : "?") + "ts=" + Date.now();
+      const res  = await fetch(url, { cache: "no-store" });
+      const text = await res.text();     // robust to wrong MIME
+      list = JSON.parse(text);           // throws if malformed -> caught below
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(list));
+    }
+
+    // Normalize to {url, name}
+    images = normalizeList(list);
+
+    // Optional cap from config.js
+    if (typeof LIMIT_IMAGES === "number" && LIMIT_IMAGES > 0) {
+      images = images.slice(0, LIMIT_IMAGES);
+    }
+
+    // Build per-image store
+    perImage = {};
+    for (const it of images) {
+      perImage[it.name] = { choice: null, confidence: 3, comment: "", tStart: null, ms: 0 };
+    }
+
+    // Shuffle order
+    order = shuffle([...images.keys()]);
+  } catch (e) {
+    alert("Failed to load image list.\n" + e);
+    console.error("List load error:", e);
+    return;
+  }
+
+  // Ready -> show task
+  tStudyStart = performance.now();
+  scrLoading.classList.add("hidden");
+  scrTask.classList.remove("hidden");
+  bindKeys();
+  showCurrent();
+  startTick();
+});
