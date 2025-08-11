@@ -1,4 +1,4 @@
-const FILES_ENDPOINT  = "https://script.google.com/macros/s/AKfycbzFAJHSkxlcd7yXh-fl1vDOZIgD65Ts-QUyEzJVNfpnpuVpFqK7Wkwv2uezN5DuF3Wg/exec?fn=list";
+const FILES_ENDPOINT  = "./assets/images.json"; 
 const SUBMIT_ENDPOINT = "https://script.google.com/macros/s/AKfycbzFAJHSkxlcd7yXh-fl1vDOZIgD65Ts-QUyEzJVNfpnpuVpFqK7Wkwv2uezN5DuF3Wg/exec";
 
 const LIMIT_IMAGES = null;
