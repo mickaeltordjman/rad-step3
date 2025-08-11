@@ -1,20 +1,133 @@
-*{box-sizing:border-box}body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;margin:0;background:#0b1020;color:#e7ebff}
-main{max-width:960px;margin:0 auto;padding:24px}
-h1,h2{margin:0 0 16px}
-.screen{background:#121a36;border:1px solid #1f2b57;border-radius:16px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
-.hidden{display:none}
-.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-weight:600}
-.image-wrap{display:flex;justify-content:center;align-items:center;background:#0d1530;border:1px solid #1b2550;border-radius:16px;min-height:520px;padding:12px;margin-bottom:16px}
-.image-wrap img{max-width:100%;max-height:500px;object-fit:contain;border-radius:8px}
-.controls{display:grid;grid-template-columns:1fr;gap:12px}
-.choice button{padding:12px 16px;border-radius:12px;border:1px solid #2a3772;background:#1a2350;color:#e7ebff;cursor:pointer}
-.choice button.primary{background:#2b7b46;border-color:#2b7b46}
-.choice button.secondary{background:#6b2b7b;border-color:#6b2b7b}
-.choice button:focus{outline:2px solid #9fb3ff}
-.nav{display:flex;gap:8px;justify-content:flex-end}
-.nav button{padding:10px 14px;border-radius:12px;border:1px solid #35448c;background:#202c63;color:#e7ebff;cursor:pointer}
-.nav button.accent{background:#3557ff;border-color:#3557ff}
-label.consent{display:block;margin:12px 0}
-input[type="text"]{width:100%;padding:10px;border-radius:10px;border:1px solid #2a3772;background:#0d1530;color:#e7ebff}
-input[type="range"]{width:100%}
-button[disabled]{opacity:.5;cursor:not-allowed}
+/* Reset-ish */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Helvetica, Arial, sans-serif;
+  background: #0b1020;
+  color: #e7ebff;
+}
+
+/* Layout */
+main { max-width: 960px; margin: 0 auto; padding: 24px; }
+h1, h2 { margin: 0 0 16px; }
+
+.screen {
+  background: #121a36;
+  border: 1px solid #1f2b57;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.3);
+}
+.hidden { display: none; }
+
+.field {
+  display: block;
+  margin: 12px 0 8px;
+}
+.field input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #2a3772;
+  background: #0d1530;
+  color: #e7ebff;
+}
+
+/* Top bar */
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+/* Image area */
+.image-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #0d1530;
+  border: 1px solid #1b2550;
+  border-radius: 16px;
+  min-height: 520px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+.image-wrap img {
+  max-width: 100%;
+  max-height: 500px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+/* Controls */
+.controls {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+/* Choice buttons */
+.choice {
+  display: flex;
+  gap: 10px;
+}
+.choice button {
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #2a3772;
+  background: #1a2350;
+  color: #e7ebff;
+  cursor: pointer;
+  font-weight: 600;
+}
+.choice button.primary { background: #2b7b46; border-color: #2b7b46; }
+.choice button.secondary { background: #6b2b7b; border-color: #6b2b7b; }
+
+/* Keep the selection visibly “on” */
+.choice button.selected {
+  outline: 2px solid #ffd24a;
+  box-shadow: 0 0 0 3px rgba(255,210,74,.2);
+}
+
+/* Confidence */
+.confidence label { display: inline-block; margin-bottom: 6px; }
+input[type="range"] {
+  width: 100%;
+  accent-color: #3557ff;
+}
+
+/* Comment */
+.comment input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #2a3772;
+  background: #0d1530;
+  color: #e7ebff;
+}
+
+/* Nav */
+.nav {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.nav button {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #35448c;
+  background: #202c63;
+  color: #e7ebff;
+  cursor: pointer;
+  font-weight: 600;
+}
+.nav button.accent { background: #3557ff; border-color: #3557ff; }
+
+/* States */
+button[disabled] { opacity: .55; cursor: not-allowed; }
+
+/* Consent */
+label.consent { display: block; margin: 12px 0; }
