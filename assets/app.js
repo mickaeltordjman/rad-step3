@@ -111,28 +111,41 @@ function endTimingForCurrent() {
 // 2) {fileName, embedUrl} (your old project style)
 // 3) "https://…/image.png" (string)
 function normalizeList(list) {
+  function driveIdFrom(url) {
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes("drive.google.com")) {
+        // handles .../uc?export=...&id=FILE_ID
+        const id = u.searchParams.get("id");
+        if (id) return id;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   return list.map((item, i) => {
     if (typeof item === "string") {
-      return { url: item, name: `img_${i+1}` };
+      const id = driveIdFrom(item);
+      const url = id ? `https://lh3.googleusercontent.com/d/${id}=w768` : item;
+      return { url, name: `img_${i+1}` };
     }
     if (item && typeof item === "object") {
-      // Prefer new schema
-      if (item.url && (item.name || item.fileName)) {
-        return { url: item.url, name: item.name || item.fileName };
+      // support {url,name}
+      if (item.url) {
+        const id = driveIdFrom(item.url);
+        const url = id ? `https://lh3.googleusercontent.com/d/${id}=w768` : item.url;
+        return { url, name: item.name || item.fileName || `img_${i+1}` };
       }
-      // Old schema: fileName + embedUrl
+      // support {fileName, embedUrl} (your images.json format)
       if (item.embedUrl) {
-        let u = String(item.embedUrl);
-        // Drive links: prefer export=download for clean <img> delivery
-        if (u.includes("drive.google.com")) {
-          u = u.replace("export=view", "export=download");
-        }
-        return { url: u, name: item.fileName || `img_${i+1}` };
+        const id = driveIdFrom(item.embedUrl);
+        const url = id ? `https://lh3.googleusercontent.com/d/${id}=w768`
+                       : item.embedUrl.replace("export=view", "export=download");
+        return { url, name: item.fileName || `img_${i+1}` };
       }
     }
-    // Fallback
     return { url: "", name: `img_${i+1}` };
-  }).filter(it => !!it.url);
+  }).filter(it => it.url);
 }
 
 // ───────── Show current image ─────────
