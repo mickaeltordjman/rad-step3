@@ -1,4 +1,4 @@
-// Utility: shuffle array (Fisher-Yates)
+// Utility: Fisher–Yates shuffle
 function shuffle(array) {
   for (let i = array.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -7,48 +7,87 @@ function shuffle(array) {
   return array;
 }
 
-// Global state
+// ----- Global state -----
 let images = [];           // [{url, name}...]
 let order = [];            // shuffled indices
 let current = 0;           // index within order[]
-let perImage = {};         // key: name/url, value: {isReal, confidence, comment, tStart, tEnd, ms}
+let perImage = {};         // name -> {choice, confidence, comment, tStart, ms}
 let participant = null;
 let tStudyStart = null;
 let totalMs = 0;
 let tickInterval = null;
 
 // Elements
-const scrConsent = document.getElementById("screen-consent");
-const scrTask = document.getElementById("screen-task");
-const scrFinish = document.getElementById("screen-finish");
-const scrLoading = document.getElementById("screen-loading");
+const scrConsent  = document.getElementById("screen-consent");
+const scrTask     = document.getElementById("screen-task");
+const scrFinish   = document.getElementById("screen-finish");
+const scrLoading  = document.getElementById("screen-loading");
 
-const startBtn = document.getElementById("start-btn");
-const consentCheckbox = document.getElementById("consent-checkbox");
+const startBtn    = document.getElementById("start-btn");
+const consentCB   = document.getElementById("consent-checkbox");
 const participantInput = document.getElementById("participant-id");
 
-const imgEl = document.getElementById("rad-img");
-const progressEl = document.getElementById("progress");
-const timerEl = document.getElementById("timer");
+const imgEl       = document.getElementById("rad-img");
+const progressEl  = document.getElementById("progress");
+const timerEl     = document.getElementById("timer");
 
-const btnReal = document.getElementById("btn-real");
-const btnSynth = document.getElementById("btn-synth");
-const btnPrev = document.getElementById("btn-prev");
-const btnNext = document.getElementById("btn-next");
+const btnReal     = document.getElementById("btn-real");
+const btnSynth    = document.getElementById("btn-synth");
+const btnPrev     = document.getElementById("btn-prev");
+const btnNext     = document.getElementById("btn-next");
 
-const confidenceEl = document.getElementById("confidence");
-const confValEl = document.getElementById("conf-val");
-const commentEl = document.getElementById("comment");
+const confidenceEl= document.getElementById("confidence");
+const confValEl   = document.getElementById("conf-val");
+const commentEl   = document.getElementById("comment");
 
 const payloadPreview = document.getElementById("payload-preview");
-const summaryEl = document.getElementById("summary");
+const summaryEl      = document.getElementById("summary");
 
-consentCheckbox.addEventListener("change", () => {
-  startBtn.disabled = !(consentCheckbox.checked && participantInput.value.trim().length > 0);
-});
-participantInput.addEventListener("input", () => {
-  startBtn.disabled = !(consentCheckbox.checked && participantInput.value.trim().length > 0);
-});
+// Helpful default to reduce odd referrer issues with some CDNs
+if (imgEl) imgEl.referrerPolicy = "no-referrer";
+
+// Enable Start only with consent + participant id
+function updateStartEnabled() {
+  startBtn.disabled = !(consentCB.checked && participantInput.value.trim().length > 0);
+}
+consentCB.addEventListener("change", updateStartEnabled);
+participantInput.addEventListener("input", updateStartEnabled);
+
+// Visually reflect choice & gate Next button
+function updateChoiceButtons(rec) {
+  btnReal.classList.toggle("selected", rec.choice === "Real");
+  btnSynth.classList.toggle("selected", rec.choice === "Synthetic");
+  btnNext.disabled = !rec.choice; // block Next until a choice exists
+}
+
+// Keyboard shortcuts
+function bindKeys() {
+  window.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (k === (typeof KEY_REAL === "string" ? KEY_REAL : "r")) choose("Real");
+    if (k === (typeof KEY_SYNTH === "string" ? KEY_SYNTH : "f")) choose("Synthetic");
+    if (e.key === "ArrowRight") next();
+    if (e.key === "ArrowLeft")  prev();
+  });
+}
+
+// Timer helpers
+function startTick() {
+  tickInterval = setInterval(() => {
+    const ms = performance.now() - tStudyStart;
+    timerEl.textContent = msToClock(ms);
+  }, 200);
+}
+function stopTick() { if (tickInterval) clearInterval(tickInterval); }
+function msToClock(ms) {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
+// MAIN: Start flow
+const CACHE_KEY = "rad_images_v2"; // bump to v3 later if you need to force refresh
 
 startBtn.addEventListener("click", async () => {
   participant = participantInput.value.trim();
@@ -56,26 +95,48 @@ startBtn.addEventListener("click", async () => {
   scrLoading.classList.remove("hidden");
 
   try {
-    const res = await fetch(FILES_ENDPOINT);
-    const list = await res.json(); // expects [{url, name}] or ["https://...","..."]
-    images = list.map((item, idx) => {
-      if (typeof item === "string") return { url: item, name: `img_${idx+1}` };
-      return { url: item.url, name: item.name || `img_${idx+1}` };
-    });
-    if (LIMIT_IMAGES) images = images.slice(0, LIMIT_IMAGES);
+    // --- Session cache for the manifest (faster reloads, avoids Apps Script cold starts) ---
+    let list;
+    const cached = sessionStorage.getItem(CACHE_KEY);
+    if (cached) {
+      list = JSON.parse(cached);
+    } else {
+      const res  = await fetch(
+        FILES_ENDPOINT + (FILES_ENDPOINT.includes("?") ? "&" : "?") + "ts=" + Date.now(),
+        { cache: "no-store" }
+      );
+      const text = await res.text();     // robust to wrong MIME
+      list = JSON.parse(text);           // throws if malformed -> caught below
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify(list));
+    }
+
+    // Normalize -> images[]
+    images = list.map((item, idx) =>
+      typeof item === "string"
+        ? { url: item, urlRaw: item, name: `img_${idx+1}` }
+        : { url: item.url, urlRaw: item.url, name: item.name || `img_${idx+1}` }
+    );
+
+    // Optional cap from config.js
+    if (typeof LIMIT_IMAGES === "number" && LIMIT_IMAGES > 0) {
+      images = images.slice(0, LIMIT_IMAGES);
+    }
+
+    // Build per-image store
+    perImage = {};
+    for (const it of images) {
+      perImage[it.name] = { choice: null, confidence: 3, comment: "", tStart: null, ms: 0 };
+    }
+
+    // Shuffle order
     order = shuffle([...images.keys()]);
   } catch (e) {
-    alert("Failed to load image list. Please check FILES_ENDPOINT in config.js");
-    console.error(e);
+    alert("Failed to load image list.\n" + e);
+    console.error("List load error:", e);
     return;
   }
 
-  // Initialize per-image store
-  for (const it of images) {
-    perImage[it.name] = { choice: null, confidence: 3, comment: "", tStart: null, tEnd: null, ms: 0 };
-  }
-
-  // Ready
+  // Ready -> show task
   tStudyStart = performance.now();
   scrLoading.classList.add("hidden");
   scrTask.classList.remove("hidden");
@@ -84,54 +145,49 @@ startBtn.addEventListener("click", async () => {
   startTick();
 });
 
-function startTick() {
-  tickInterval = setInterval(() => {
-    const elapsedMs = performance.now() - tStudyStart;
-    timerEl.textContent = msToClock(elapsedMs);
-  }, 200);
-}
-function stopTick() { if (tickInterval) clearInterval(tickInterval); }
-
-function msToClock(ms) {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;
-}
-
-function bindKeys() {
-  window.addEventListener("keydown", (e) => {
-    if (e.key.toLowerCase() === KEY_REAL) choose("Real");
-    if (e.key.toLowerCase() === KEY_SYNTH) choose("Synthetic");
-    if (e.key === "ArrowRight") next();
-    if (e.key === "ArrowLeft") prev();
-  });
-}
-
-function showCurrent() {
-  const idx = order[current];
-  const item = images[idx];
-  imgEl.src = item.url + (item.url.includes("?") ? "&" : "?") + "_ts=" + Date.now(); // bust cache
-  progressEl.textContent = `Image ${current+1} / ${order.length}`;
-
-  // restore UI
-  const rec = perImage[item.name];
-  confidenceEl.value = rec.confidence;
-  confValEl.textContent = rec.confidence;
-  commentEl.value = rec.comment;
-
-  // start timer for this image
-  rec.tStart = performance.now();
-}
-
-confidenceEl.addEventListener("input", () => {
-  confValEl.textContent = confidenceEl.value;
-});
-
+// UI events
 btnReal.addEventListener("click", () => choose("Real"));
 btnSynth.addEventListener("click", () => choose("Synthetic"));
 btnNext.addEventListener("click", next);
 btnPrev.addEventListener("click", prev);
+
+confidenceEl.addEventListener("input", () => {
+  confValEl.textContent = confidenceEl.value;
+  // Do NOT clear choice when moving the slider
+});
+
+function showCurrent() {
+  if (!order.length) {
+    alert("No images returned. Check your Drive folder / endpoint.");
+    return;
+  }
+  const idx = order[current];
+  const item = images[idx];
+
+  // Show current image (allow caching for speed)
+  imgEl.src = item.url;
+  progressEl.textContent = `Image ${current + 1} / ${order.length}`;
+
+  // Restore UI state
+  const rec = perImage[item.name];
+  confidenceEl.value = rec.confidence;
+  confValEl.textContent = rec.confidence;
+  commentEl.value = rec.comment;
+  updateChoiceButtons(rec);
+
+  // Start timing when this image is displayed
+  rec.tStart = performance.now();
+
+  // Preload next 2 images to speed up navigation
+  for (let k = 1; k <= 2; k++) {
+    const j = current + k;
+    if (j < order.length) {
+      const pre = new Image();
+      pre.referrerPolicy = "no-referrer";
+      pre.src = images[order[j]].url;
+    }
+  }
+}
 
 function choose(label) {
   const idx = order[current];
@@ -140,9 +196,17 @@ function choose(label) {
   rec.choice = label;
   rec.confidence = Number(confidenceEl.value);
   rec.comment = commentEl.value;
+  updateChoiceButtons(rec); // make selection sticky + enable Next
 }
 
 function next() {
+  const idx = order[current];
+  const item = images[idx];
+  const rec = perImage[item.name];
+  if (!rec.choice) {
+    alert("Please choose Real or Synthetic before continuing.");
+    return;
+  }
   endTimingForCurrent();
   if (current < order.length - 1) {
     current += 1;
@@ -151,6 +215,7 @@ function next() {
     finish();
   }
 }
+
 function prev() {
   endTimingForCurrent();
   if (current > 0) {
@@ -158,29 +223,27 @@ function prev() {
     showCurrent();
   }
 }
+
 function endTimingForCurrent() {
   const idx = order[current];
   const item = images[idx];
   const rec = perImage[item.name];
   if (rec.tStart != null) {
-    rec.tEnd = performance.now();
-    rec.ms += (rec.tEnd - rec.tStart);
+    rec.ms += (performance.now() - rec.tStart);
     rec.tStart = null;
   }
 }
 
 async function finish() {
   stopTick();
-  const tEnd = performance.now();
-  totalMs = tEnd - tStudyStart;
+  totalMs = performance.now() - tStudyStart;
 
-  // Build payload
   const rows = order.map((ordIdx, rank) => {
     const item = images[ordIdx];
     const rec = perImage[item.name];
     return {
       participant,
-      display_rank: rank+1,
+      display_rank: rank + 1,
       image_name: item.name,
       image_url: item.url,
       choice: rec.choice,
@@ -195,17 +258,17 @@ async function finish() {
   try {
     const res = await fetch(SUBMIT_ENDPOINT, {
       method: "POST",
-      headers: {"Content-Type": "application/json"},
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ participant, total_ms: Math.round(totalMs), n: order.length, rows })
     });
-    if (!res.ok) throw new Error("Submit failed");
+    if (!res.ok) throw new Error("Submit failed: " + res.status);
   } catch (e) {
-    alert("Submission failed. Please check SUBMIT_ENDPOINT in config.js");
-    console.error(e);
+    alert("Submission failed. Please check the SUBMIT endpoint.\n" + e);
+    console.error("Submit error:", e);
     return;
   }
 
-  // Show finish screen
+  // Done screen
   scrTask.classList.add("hidden");
   scrFinish.classList.remove("hidden");
   summaryEl.textContent = `Total time: ${msToClock(totalMs)} across ${order.length} images.`;
