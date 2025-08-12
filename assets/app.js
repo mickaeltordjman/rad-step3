@@ -249,7 +249,8 @@ async function finish() {
       response: rec.choice || "",
       confidence: rec.confidence ?? "",
       comment: rec.comment || "",
-      timing: Math.round(rec.ms)
+     timing: (rec.ms / 1000).toFixed(1) // seconds with 1 decimals
+
     };
   });
 
